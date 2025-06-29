@@ -3,7 +3,7 @@ This code parses, plots, and in accordance with the symmetry axes (or PCA axes i
 ## -- HOW  TO USE --  
 -Pick your Gerber file, either through the browse option or via pasting its directory to the box manually.  
 Note: This code is meant to handle singular layers, so export the gerber plot file of the layer in question by itself, ZIP archives work, but you're going to have to direct the code not to the archive, but the layer itself. like "Gerber_TopPasteMaskLayer.GTP".  
--Run Visualization -- this will display your gerber as detected, and if the gerber is plotted via paths, it should display the symmetry axes. It won't displa themin the case of apertures, but they are present all the same.  
+-Run Visualization -- this will display your gerber as detected, and if the gerber is plotted via paths, it should display the symmetry axes. It won't display them in the case of apertures, but they are present all the same.  
 -Adjust scaling as you wish. Two scaling factors are given which govern two orthogonal axes. It might not be a good idea to increase or decrease these values too much.  
 -(If scaled) run visualization again to see its effects, both non scaled and scaled versions will be displayed.  
 -Export either as Dxf or Pdf.
