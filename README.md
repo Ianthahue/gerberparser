@@ -17,3 +17,12 @@ Note: This code is meant to handle singular layers, so export the gerber plot fi
 -Fiducial marks percent is about the distance the "circles" have from the center of the bounding box, such a feature is optional, and are there purely for calibration. The default value of 80% might not be ideal, but I found 130% to be pretty good.  
 -If the marks are deemed unnecessary, setting them outside the bounding box should remove them, as they are rendered as white.  
 -After the parameters are set, "Export Final PDF" option will yield the pdf export.  
+
+### Dependancies
+matplotlib: For plotting and visualization.  
+numpy  
+scikit-learn: For PCA (Principal Component Analysis).  
+shapely: For geometric operations (LineString, box, Point, Polygon, unary_union, etc.).  
+scipy: For scientific computing, specifically interp1d (interpolation).  
+ezdxf: For working with DXF CAD files.  
+reportlab: For generating PDF documents.  
