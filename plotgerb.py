@@ -1,6 +1,5 @@
 import re
 import matplotlib.pyplot as plt
-import math
 import numpy as np
 from sklearn.decomposition import PCA
 from shapely.geometry import LineString, box, Point as ShapelyPoint
@@ -19,7 +18,6 @@ import tkinter as tk
 from tkinter import filedialog, messagebox
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from shapely.geometry import Point, Polygon
-from reportlab.lib.pagesizes import landscape, A4
 from matplotlib.patches import Rectangle, Circle, PathPatch, Ellipse
 
 
@@ -28,27 +26,49 @@ from matplotlib.patches import Rectangle, Circle, PathPatch, Ellipse
 def read_gerber_file(path):
     with open(path, 'r') as f:
         return f.readlines()
-def parse_aperture_definitions(lines):
+def parse_aperture_definitions(lines, units):
     aperture_defs = {}
     pattern = re.compile(r'%ADD(\d+)([A-Za-z]*),([^*]+)\*%')
+
+    # Define conversion factor
+    conversion_factor = 1.0
+    if units == 'inches':
+        conversion_factor = 25.4 # Convert inches to mm
+
     for line in lines:
         m = pattern.match(line)
         if m:
             num = int(m.group(1))
             shape = m.group(2)
-            params = m.group(3)
+            params_str = m.group(3) # Original string parameters
+
+            # Convert parameters string to a list of floats, then apply conversion factor
+            converted_params = []
+            if 'X' in params_str:
+                raw_sizes = map(float, params_str.split('X'))
+            else:
+                raw_sizes = map(float, params_str.split())
+
+            for size in raw_sizes:
+                converted_params.append(size * conversion_factor)
+
             aperture_defs[num] = {
                 'shape': shape,
-                'params': params
+                'params': converted_params # Store as converted list of floats
             }
     return aperture_defs
 
 def detect_units(lines):
     for line in lines:
-        if 'G70' in line:
+        if '%MOIN*' in line:
             return 'inches'
-        elif 'G71' in line:
+        elif '%MOMM*' in line:
             return 'mm'
+        elif 'G70*' in line or 'G70 ' in line:
+            return 'inches'
+        elif 'G71*' in line or 'G71 ' in line:
+            return 'mm'
+    return 'mm'
 
 def extract_coordinates(gerber_lines, units, aperture_defs):
     paths = []
@@ -57,17 +77,39 @@ def extract_coordinates(gerber_lines, units, aperture_defs):
     current_path = []
     current_pos = (0, 0)
     pen_down = False
+    in_region = False
     current_aperture = None
 
     coord_pattern = re.compile(r'^X(-?\d+)Y(-?\d+)D(\d+)\*$')
     aperture_pattern = re.compile(r'^D(\d+)\*$')
     coord_format_pattern = re.compile(r'%FSLAX(\d)(\d)Y(\d)(\d)\*%')
-    divisor = 1000000 # fallback divisor if not found
+    divisor = 1000000
     
     for line in gerber_lines:
         line = line.strip()
         if not line:
             continue
+
+        if 'G36' in line:
+            if current_path:
+                paths.append(np.array(current_path))
+                current_path = []
+            in_region = True
+            pen_down = True
+            continue
+        elif 'G37' in line:
+            if current_path:
+                if not np.allclose(current_path[0], current_path[-1]):
+                    current_path.append(current_path[0])
+                paths.append(np.array(current_path))
+                current_path = []
+            in_region = False
+            pen_down = False
+            continue
+        elif 'G01' in line:
+            continue
+        elif 'G02' in line or 'G03' in line:
+            pass
 
         m_fmt = coord_format_pattern.match(line)
         if m_fmt:
@@ -90,6 +132,7 @@ def extract_coordinates(gerber_lines, units, aperture_defs):
             x_raw = int(m.group(1))
             y_raw = int(m.group(2))
             d_code = int(m.group(3))
+
             if units == 'inches':
                 x_raw = x_raw * 25.4
                 y_raw = y_raw * 25.4
@@ -97,23 +140,23 @@ def extract_coordinates(gerber_lines, units, aperture_defs):
             x = x_raw / divisor
             y = y_raw / divisor
 
-            if d_code == 2: # move (pen up)
-                if pen_down and current_path:
-                    paths.append(current_path)
-                    current_path = []
-                current_pos = (x, y)
-                pen_down = False
-
-            elif d_code == 1: # draw (pen down)
+            if d_code == 1:
                 if not pen_down:
                     current_path = [current_pos]
                 current_path.append((x, y))
                 current_pos = (x, y)
                 pen_down = True
 
-            elif d_code == 3: # flash
-                if pen_down and current_path:
-                    paths.append(current_path)
+            elif d_code == 2:
+                if current_path and not in_region:
+                    paths.append(np.array(current_path))
+                    current_path = []
+                current_pos = (x, y)
+                pen_down = False
+
+            elif d_code == 3:
+                if current_path and not in_region:
+                    paths.append(np.array(current_path))
                     current_path = []
                     pen_down = False
 
@@ -126,8 +169,10 @@ def extract_coordinates(gerber_lines, units, aperture_defs):
                 flashes.append(flash_cmd)
                 current_pos = (x, y)
 
-    if pen_down and current_path:
-        paths.append(current_path)
+    if current_path:
+        if in_region and not np.allclose(current_path[0], current_path[-1]):
+             current_path.append(current_path[0])
+        paths.append(np.array(current_path))
 
     return paths, flashes
 
@@ -1169,7 +1214,7 @@ def main(file_path, scale_sym, scale_perp, plot_func, export_dxf_func=None, expo
     """
     gerber_lines = read_gerber_file(file_path)
     units = detect_units(gerber_lines)
-    aperture_defs = parse_aperture_definitions(gerber_lines)
+    aperture_defs = parse_aperture_definitions(gerber_lines, units)
     paths, flashes = extract_coordinates(gerber_lines, units, aperture_defs)
     centroids = calculate_centroids(paths) if paths else []
     flash_centroids = calculate_flash_centroids(flashes) if flashes else []
@@ -1268,7 +1313,7 @@ class GeometryApp:
             # Parse Gerber data and store the raw (unscaled) results as instance attributes
             gerber_lines = read_gerber_file(gerber_file)
             units = detect_units(gerber_lines)
-            aperture_defs = parse_aperture_definitions(gerber_lines)
+            aperture_defs = parse_aperture_definitions(gerber_lines, units)
             # Store raw paths and flashes for later use by export functions
             self.raw_paths, self.raw_flashes = extract_coordinates(gerber_lines, units, aperture_defs)
             
